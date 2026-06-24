@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup mise
+        uses: jdx/mise-action@v2
+        with:
+          experimental: true
+
+      - name: Add Windows MSVC target
+        run: rustup target add x86_64-pc-windows-msvc
+
+      - name: Install Node dependencies (none currently, but keeps Tauri CLI happy)
+        run: echo "No frontend deps"
+
+      - name: Generate placeholder icons
+        run: python scripts/gen-icons.py
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build
+        run: cargo tauri build --target x86_64-pc-windows-msvc
+        env:
+          # Optional: sign with a certificate
+          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          RUST_LOG: info
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts
+          Get-ChildItem -Recurse src-tauri/target/x86_64-pc-windows-msvc/release/bundle `
+            -Include *.exe,*.msi | Copy-Item -Destination artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || inputs.tag }}
+          name: github-notifier-ws ${{ github.ref_name || inputs.tag }}
+          generate_release_notes: true
+          files: artifacts/*
+          body: |
+            ## インストール
+
+            1. 下の `.exe` (NSIS インストーラ) または `.msi` をダウンロードして実行します。
+            2. 起動すると初回はトークン入力ウィンドウが開きます。
+               `notifications` スコープの GitHub PAT を入力してください。
+            3. トークンは Windows Credential Manager に保存され、以降は自動で使われます。
+            4. システムトレイに常駐し、YAML (`%APPDATA%\github-notifier-ws\config.yaml`) で通知ルールを設定できます。
+
+            ## 設定例
+
+            ```yaml
+            poll_interval: 60
+            bundle_threshold: 3
+            allow_destructive: false
+            default: ignore
+
+            rules:
+              - name: direct
+                match:
+                  reason: [mention, review_requested, assign]
+                action: notify
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

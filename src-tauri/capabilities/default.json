@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.json",
+  "identifier": "default",
+  "description": "Default capabilities for github-notifier-ws",
+  "windows": ["main", "setup"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "opener:default"
+  ]
+}
