@@ -62,6 +62,18 @@ mod windows_impl {
         }
     }
 
+    /// Try to extract a line number from a serde_yaml error message.
+    pub fn extract_line_number(msg: &str) -> Option<usize> {
+        // serde_yaml errors: "... at line 5 column 3" or "line 5 column 3: ..."
+        let idx = msg.find("line ")?;
+        msg[idx + 5..]
+            .split_whitespace()
+            .next()?
+            .trim_end_matches(',')
+            .parse()
+            .ok()
+    }
+
     pub fn notification_xml(notif: &Notification) -> String {
         let id = notif.thread_id();
         let repo = escape(&notif.repository.full_name);
@@ -82,7 +94,7 @@ mod windows_impl {
   <actions>
     <action content="開く" arguments="github-notifier-ws://thread/{id}?do=open" activationType="protocol"/>
     <action content="既読にする" arguments="github-notifier-ws://thread/{id}?do=mark_read" activationType="protocol"/>
-    <action content="ミュート" arguments="github-notifier-ws://thread/{id}?do=mute&amp;repo={repo_enc}" activationType="protocol"/>
+    <action content="このリポジトリをミュート" arguments="github-notifier-ws://thread/{id}?do=mute&amp;repo={repo_enc}" activationType="protocol"/>
   </actions>
 </toast>"#
         )
@@ -91,15 +103,26 @@ mod windows_impl {
     pub fn bundle_xml(notifications: &[Notification]) -> String {
         let n = notifications.len();
         let mention = notifications.iter().filter(|n| n.reason == "mention").count();
-        let review = notifications.iter().filter(|n| n.reason == "review_requested").count();
+        let review = notifications
+            .iter()
+            .filter(|n| n.reason == "review_requested")
+            .count();
         let ci = notifications.iter().filter(|n| n.reason == "ci_activity").count();
         let other = n - mention - review - ci;
 
         let mut parts = Vec::new();
-        if mention > 0 { parts.push(format!("メンション {mention}")); }
-        if review > 0 { parts.push(format!("レビュー依頼 {review}")); }
-        if ci > 0 { parts.push(format!("CI {ci}")); }
-        if other > 0 { parts.push(format!("その他 {other}")); }
+        if mention > 0 {
+            parts.push(format!("メンション {mention}"));
+        }
+        if review > 0 {
+            parts.push(format!("レビュー依頼 {review}"));
+        }
+        if ci > 0 {
+            parts.push(format!("CI {ci}"));
+        }
+        if other > 0 {
+            parts.push(format!("その他 {other}"));
+        }
         let summary = escape(&parts.join("・"));
 
         format!(
@@ -119,12 +142,17 @@ mod windows_impl {
     }
 
     pub fn config_error_xml(msg: &str) -> String {
+        let title = match extract_line_number(msg) {
+            Some(line) => format!("設定エラー · {}行目", line),
+            None => "設定エラー".to_string(),
+        };
+        let title = escape(&title);
         let msg = escape(msg);
         format!(
             r#"<toast>
   <visual>
     <binding template="ToastGeneric">
-      <text>設定エラー</text>
+      <text>{title}</text>
       <text>{msg}</text>
       <text>直前の有効な設定で動作を継続中</text>
     </binding>
