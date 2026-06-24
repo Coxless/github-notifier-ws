@@ -31,9 +31,6 @@ jobs:
       - name: Add Windows MSVC target
         run: rustup target add x86_64-pc-windows-msvc
 
-      - name: Install Node dependencies (none currently, but keeps Tauri CLI happy)
-        run: echo "No frontend deps"
-
       - name: Generate placeholder icons
         run: python scripts/gen-icons.py
 
@@ -43,9 +40,6 @@ jobs:
       - name: Build
         run: cargo tauri build --target x86_64-pc-windows-msvc
         env:
-          # Optional: sign with a certificate
-          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           RUST_LOG: info
 
       - name: Collect artifacts
@@ -55,11 +49,59 @@ jobs:
           Get-ChildItem -Recurse src-tauri/target/x86_64-pc-windows-msvc/release/bundle `
             -Include *.exe,*.msi | Copy-Item -Destination artifacts/
 
-      - name: Upload artifacts
+      - name: Upload artifacts (CI cache)
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: artifacts/
+
+      # ── GitHub Packages: push installer as OCI artifact to Container Registry ──
+
+      - name: Setup ORAS
+        uses: oras-project/setup-oras@v1
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push installer to GitHub Packages (ghcr.io)
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name || inputs.tag }}"
+          $owner   = "${{ github.repository_owner }}".ToLower()
+          $ref     = "ghcr.io/${owner}/github-notifier-ws:${version}"
+          $latest  = "ghcr.io/${owner}/github-notifier-ws:latest"
+
+          # Prefer NSIS .exe; fall back to .msi
+          $installer = Get-ChildItem artifacts -Filter *.exe | Select-Object -First 1
+          if (-not $installer) {
+              $installer = Get-ChildItem artifacts -Filter *.msi | Select-Object -First 1
+          }
+          if (-not $installer) { Write-Error "インストーラが見つかりません"; exit 1 }
+
+          $file = $installer.FullName
+          $name = $installer.Name
+          Write-Host "Pushing $name as $ref ..."
+
+          oras push $ref "${file}:application/octet-stream" `
+              --annotation "org.opencontainers.image.title=${name}" `
+              --annotation "org.opencontainers.image.version=${version}" `
+              --annotation "org.opencontainers.image.description=github-notifier-ws Windows installer" `
+              --annotation "org.opencontainers.image.url=https://github.com/${{ github.repository }}"
+
+          oras push $latest "${file}:application/octet-stream" `
+              --annotation "org.opencontainers.image.title=${name}" `
+              --annotation "org.opencontainers.image.version=${version}" `
+              --annotation "org.opencontainers.image.description=github-notifier-ws Windows installer" `
+              --annotation "org.opencontainers.image.url=https://github.com/${{ github.repository }}"
+
+          Write-Host "Published: $ref"
+          Write-Host "Published: $latest"
+
+      # ── GitHub Releases: attach installer for direct download link ─────────────
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -69,13 +111,34 @@ jobs:
           generate_release_notes: true
           files: artifacts/*
           body: |
-            ## インストール
+            ## インストール方法
 
-            1. 下の `.exe` (NSIS インストーラ) または `.msi` をダウンロードして実行します。
-            2. 起動すると初回はトークン入力ウィンドウが開きます。
-               `notifications` スコープの GitHub PAT を入力してください。
-            3. トークンは Windows Credential Manager に保存され、以降は自動で使われます。
-            4. システムトレイに常駐し、YAML (`%APPDATA%\github-notifier-ws\config.yaml`) で通知ルールを設定できます。
+            ### 方法 1 — PowerShell スクリプト（GitHub Packages から）
+
+            管理者 PowerShell で以下を実行します：
+
+            ```powershell
+            irm https://raw.githubusercontent.com/${{ github.repository }}/main/install.ps1 | iex
+            ```
+
+            または特定バージョンを指定：
+
+            ```powershell
+            & ([scriptblock]::Create((irm https://raw.githubusercontent.com/${{ github.repository }}/main/install.ps1))) -Version "${{ github.ref_name || inputs.tag }}"
+            ```
+
+            ### 方法 2 — 直接ダウンロード
+
+            下の `.exe`（NSIS インストーラ）または `.msi` をダウンロードして実行します。
+
+            ---
+
+            ## 初回セットアップ
+
+            1. インストール後、起動するとトークン入力ウィンドウが開きます。
+            2. `notifications` スコープの GitHub PAT（Classic）を入力してください。
+            3. トークンは **Windows Credential Manager** に保存されます。
+            4. 以降はシステムトレイに常駐し、`%APPDATA%\github-notifier-ws\config.yaml` でルールを設定できます。
 
             ## 設定例
 
