@@ -108,6 +108,37 @@ rules:
   #   action: mark_read   # allow_destructive: true のときだけ実発火
 "#;
 
+pub fn append_ignore_rule(repo: &str) -> Result<()> {
+    let path = config_path();
+    let mut config = load(&path).unwrap_or_default();
+
+    // Avoid duplicates
+    let already_exists = config.rules.iter().any(|r| {
+        r.action == Action::Ignore
+            && r.conditions.repository.as_deref() == Some(repo)
+            && r.conditions.reason.is_none()
+            && r.conditions.subject_type.is_none()
+            && r.conditions.title_contains.is_none()
+    });
+    if already_exists {
+        return Ok(());
+    }
+
+    config.rules.push(Rule {
+        name: format!("mute {}", repo),
+        conditions: Conditions {
+            repository: Some(repo.to_string()),
+            ..Default::default()
+        },
+        action: Action::Ignore,
+    });
+
+    let yaml =
+        serde_yaml::to_string(&config).context("設定のシリアライズに失敗")?;
+    std::fs::write(&path, format!("# github-notifier-ws config\n{}", yaml))
+        .context("ミュートルールの書き込みに失敗")
+}
+
 pub async fn start_watcher(app: tauri::AppHandle, state: crate::AppStateHandle) {
     use notify::{EventKind, RecursiveMode, Watcher};
 

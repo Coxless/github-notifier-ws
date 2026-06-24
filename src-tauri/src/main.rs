@@ -7,6 +7,7 @@ mod notify;
 mod rules;
 mod tray;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::Mutex;
@@ -19,6 +20,8 @@ pub struct AppState {
     pub unread_count: usize,
     pub api_rate_remaining: Option<u32>,
     pub last_sync: Option<std::time::Instant>,
+    pub wake_poll: Arc<tokio::sync::Notify>,
+    pub thread_url_cache: HashMap<String, String>, // thread_id → subject.url
 }
 
 pub type AppStateHandle = Arc<Mutex<AppState>>;
@@ -62,6 +65,8 @@ fn main() {
                 unread_count: 0,
                 api_rate_remaining: None,
                 last_sync: None,
+                wake_poll: Arc::new(tokio::sync::Notify::new()),
+                thread_url_cache: HashMap::new(),
             }));
 
             app.manage(state.clone());

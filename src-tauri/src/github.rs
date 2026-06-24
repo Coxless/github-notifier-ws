@@ -22,7 +22,6 @@ pub struct Subject {
     pub title: String,
     #[serde(rename = "type")]
     pub subject_type: String,
-    #[allow(dead_code)]
     pub url: String,
 }
 
@@ -38,6 +37,7 @@ impl Notification {
             .url
             .replace("https://api.github.com/repos/", "https://github.com/")
             .replace("/pulls/", "/pull/")
+            .replace("/commits/", "/commit/")
     }
 }
 
@@ -141,6 +141,19 @@ impl GitHubClient {
             .context("サブスクリプション解除 API エラー")?;
         Ok(())
     }
+
+    pub async fn mark_all_read(&self) -> Result<()> {
+        self.client
+            .put("https://api.github.com/notifications")
+            .bearer_auth(&self.token)
+            .header("Content-Length", "0")
+            .send()
+            .await
+            .context("全既読化リクエスト失敗")?
+            .error_for_status()
+            .context("全既読化 API エラー")?;
+        Ok(())
+    }
 }
 
 pub struct PollResult {
@@ -169,6 +182,11 @@ pub fn store_token(token: &str) -> Result<()> {
 }
 
 pub async fn poll_loop(app: tauri::AppHandle, state: crate::AppStateHandle) {
+    let wake = {
+        let s = state.lock().await;
+        s.wake_poll.clone()
+    };
+
     loop {
         // Check snooze
         {
@@ -177,7 +195,10 @@ pub async fn poll_loop(app: tauri::AppHandle, state: crate::AppStateHandle) {
                 if std::time::Instant::now() < until {
                     let wait = s.server_poll_interval.max(s.config.poll_interval);
                     drop(s);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(wait)).await;
+                    tokio::select! {
+                        _ = tokio::time::sleep(tokio::time::Duration::from_secs(wait)) => {}
+                        _ = wake.notified() => {}
+                    }
                     continue;
                 }
             }
@@ -187,8 +208,11 @@ pub async fn poll_loop(app: tauri::AppHandle, state: crate::AppStateHandle) {
             Ok(t) => t,
             Err(e) => {
                 log::warn!("トークン取得失敗: {}", e);
-                crate::tray::set_error(&app, "認証エラー: トークンが設定されていません").await;
-                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                crate::tray::set_error(&app, &state, "認証エラー: トークンが設定されていません").await;
+                tokio::select! {
+                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(60)) => {}
+                    _ = wake.notified() => {}
+                }
                 continue;
             }
         };
@@ -213,17 +237,26 @@ pub async fn poll_loop(app: tauri::AppHandle, state: crate::AppStateHandle) {
                         s.api_rate_remaining = Some(r);
                     }
                     s.last_sync = Some(std::time::Instant::now());
+                    // Cache thread subject URLs for later deep-link resolution
+                    for notif in &result.notifications {
+                        s.thread_url_cache
+                            .insert(notif.thread_id().to_string(), notif.subject.url.clone());
+                    }
                 }
 
                 process_notifications(&app, &state, &client, result.notifications).await;
             }
             Ok(None) => {
-                let mut s = state.lock().await;
-                s.last_sync = Some(std::time::Instant::now());
+                {
+                    let mut s = state.lock().await;
+                    s.last_sync = Some(std::time::Instant::now());
+                }
+                // Rebuild menu to refresh "X分前に同期" text
+                crate::tray::rebuild_menu(&app, &state).await;
             }
             Err(e) => {
                 log::error!("ポーリングエラー: {}", e);
-                crate::tray::set_error(&app, &e.to_string()).await;
+                crate::tray::set_error(&app, &state, &e.to_string()).await;
             }
         }
 
@@ -231,7 +264,10 @@ pub async fn poll_loop(app: tauri::AppHandle, state: crate::AppStateHandle) {
             let s = state.lock().await;
             s.server_poll_interval.max(s.config.poll_interval)
         };
-        tokio::time::sleep(tokio::time::Duration::from_secs(sleep_secs)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(tokio::time::Duration::from_secs(sleep_secs)) => {}
+            _ = wake.notified() => {}
+        }
     }
 }
 
@@ -280,11 +316,11 @@ async fn process_notifications(
     }
 
     if to_notify.is_empty() {
-        crate::tray::set_idle(app).await;
+        crate::tray::set_idle(app, state).await;
         return;
     }
 
-    crate::tray::set_unread(app, to_notify.len()).await;
+    crate::tray::set_unread(app, state, to_notify.len()).await;
 
     if to_notify.len() >= bundle_threshold {
         crate::notify::show_bundle(app, &to_notify);
