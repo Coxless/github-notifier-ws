@@ -87,12 +87,14 @@ jobs:
           Write-Host "Pushing $name as $ref ..."
 
           oras push $ref "${file}:application/octet-stream" `
+              --disable-path-validation `
               --annotation "org.opencontainers.image.title=${name}" `
               --annotation "org.opencontainers.image.version=${version}" `
               --annotation "org.opencontainers.image.description=github-notifier-ws Windows installer" `
               --annotation "org.opencontainers.image.url=https://github.com/${{ github.repository }}"
 
           oras push $latest "${file}:application/octet-stream" `
+              --disable-path-validation `
               --annotation "org.opencontainers.image.title=${name}" `
               --annotation "org.opencontainers.image.version=${version}" `
               --annotation "org.opencontainers.image.description=github-notifier-ws Windows installer" `
