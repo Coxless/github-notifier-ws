@@ -38,7 +38,8 @@
       "nsis": {
         "displayLanguageSelector": false,
         "languages": ["Japanese", "English"],
-        "installMode": "perMachine"
+        "installMode": "perMachine",
+        "installerHooks": "nsis/installer-hooks.nsh"
       }
     }
   },

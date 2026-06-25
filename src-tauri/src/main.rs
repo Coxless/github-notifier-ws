@@ -118,10 +118,12 @@ fn main() {
 
             Ok(())
         })
-        .on_window_event(|_window, event| {
-            // Prevent the app from exiting when windows are closed
+        .on_window_event(|window, event| {
+            // Only prevent the hidden "main" window from closing; other windows (e.g. setup) must close normally
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
+                if window.label() == "main" {
+                    api.prevent_close();
+                }
             }
         })
         .build(tauri::generate_context!())

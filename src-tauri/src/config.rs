@@ -84,7 +84,7 @@ pub fn load_or_default() -> Config {
     }
 }
 
-const DEFAULT_CONFIG: &str = r#"# github-notifier-ws 設定ファイル
+pub const DEFAULT_CONFIG: &str = r#"# github-notifier-ws 設定ファイル
 poll_interval: 60          # ポーリング間隔の下限（秒）。X-Poll-Interval が優先
 bundle_threshold: 3        # 1回のポーリングでこの件数以上なら束ねて1枚に
 allow_destructive: false   # mark_read / mark_done を実際に発火させるか
