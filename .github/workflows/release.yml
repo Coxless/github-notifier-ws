@@ -35,7 +35,7 @@ jobs:
         run: python scripts/gen-icons.py
 
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
+        run: cargo install tauri-cli --version "^2.0.0" --locked
 
       - name: Build
         run: cargo tauri build --target x86_64-pc-windows-msvc
