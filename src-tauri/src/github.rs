@@ -27,17 +27,30 @@ pub struct Subject {
 
 impl Notification {
     pub fn thread_id(&self) -> &str {
-        self.url.split('/').last().unwrap_or(&self.id)
+        self.url.split('/').next_back().unwrap_or(&self.id)
     }
 
     #[allow(dead_code)]
     pub fn html_url(&self) -> String {
-        // api.github.com/repos/owner/repo/pulls/1 → github.com/owner/repo/pull/1
-        self.subject
-            .url
-            .replace("https://api.github.com/repos/", "https://github.com/")
-            .replace("/pulls/", "/pull/")
-            .replace("/commits/", "/commit/")
+        subject_url_to_html_url(&self.subject.url)
+    }
+}
+
+/// Convert a GitHub API subject URL to its GitHub.com HTML URL.
+/// Handles per-type differences (PullRequest, Commit, Release, etc.).
+pub fn subject_url_to_html_url(subject_url: &str) -> String {
+    let base = subject_url.replace("https://api.github.com/repos/", "https://github.com/");
+    if base.contains("/pulls/") {
+        base.replace("/pulls/", "/pull/")
+    } else if base.contains("/commits/") {
+        base.replace("/commits/", "/commit/")
+    } else if let Some(pos) = base.find("/releases/") {
+        // Release IDs can't be mapped to tag URLs without an extra API call;
+        // fall back to the releases list page.
+        base[..pos + "/releases".len()].to_string()
+    } else {
+        // Issues, Discussions, and other types: base URL replacement is sufficient.
+        base
     }
 }
 

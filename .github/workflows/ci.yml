@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Fast feedback: type check + lint ────────────────────────────────────────
+  check:
+    name: Check & Clippy
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup mise
+        uses: jdx/mise-action@v2
+        with:
+          experimental: true
+
+      - name: Add MSVC target and clippy component
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          rustup component add clippy
+
+      - name: Cache cargo registry / build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --target x86_64-pc-windows-msvc
+
+      - name: cargo clippy (deny warnings)
+        working-directory: src-tauri
+        run: cargo clippy --target x86_64-pc-windows-msvc -- -D warnings
+
+  # ── Full debug build + test suite ───────────────────────────────────────────
+  build:
+    name: Test Build (Windows x64)
+    runs-on: windows-latest
+    needs: check
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup mise
+        uses: jdx/mise-action@v2
+        with:
+          experimental: true
+
+      - name: Add MSVC target
+        run: rustup target add x86_64-pc-windows-msvc
+
+      - name: Cache cargo registry / build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: cargo build --debug
+        working-directory: src-tauri
+        run: cargo build --target x86_64-pc-windows-msvc
+
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test --target x86_64-pc-windows-msvc

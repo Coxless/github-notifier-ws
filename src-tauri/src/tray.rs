@@ -245,6 +245,7 @@ fn open_config_file(app: &AppHandle) {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
+        let _ = std::fs::write(&path, crate::config::DEFAULT_CONFIG);
     }
     let _ = app
         .opener()

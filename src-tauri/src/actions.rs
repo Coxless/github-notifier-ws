@@ -120,11 +120,7 @@ async fn resolve_thread_html_url(app: &AppHandle, thread_id: &str) -> String {
     let state = app.state::<crate::AppStateHandle>();
     let s = state.lock().await;
     if let Some(subject_url) = s.thread_url_cache.get(thread_id) {
-        // api.github.com/repos/owner/repo/pulls/1 → github.com/owner/repo/pull/1
-        subject_url
-            .replace("https://api.github.com/repos/", "https://github.com/")
-            .replace("/pulls/", "/pull/")
-            .replace("/commits/", "/commit/")
+        crate::github::subject_url_to_html_url(subject_url)
     } else {
         "https://github.com/notifications".to_string()
     }
