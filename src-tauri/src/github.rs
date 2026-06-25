@@ -27,7 +27,7 @@ pub struct Subject {
 
 impl Notification {
     pub fn thread_id(&self) -> &str {
-        self.url.split('/').last().unwrap_or(&self.id)
+        self.url.split('/').next_back().unwrap_or(&self.id)
     }
 
     #[allow(dead_code)]
